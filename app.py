@@ -1,117 +1,117 @@
 import streamlit as st
 import pandas as pd
-
-# 1. ตั้งค่าเมนูและสถานะ (Session State)
-if 'page' not in st.session_state:
-    st.session_state.page = "Home"
-
-# 2. ส่วนแถบด้านบน (User Profile & Navigation)
-st.sidebar.title("🧬 Bio Analysis")
-st.sidebar.write("User: Guest") # ในอนาคตจะเชื่อมระบบ Login
-
-menu = st.sidebar.radio("Menu", ["Home", "My Project", "About Us"])
-
-# 3. หน้า Home
-if menu == "Home":
-    st.title("ยินดีต้อนรับสู่ระบบวิเคราะห์ข้อมูล")
-    
-    if st.button("➕ New Analysis"):
-        st.session_state.show_options = True
-
-    if st.session_state.get('show_options'):
-        st.subheader("กรุณาเลือกรูปแบบไฟล์")
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("📄 Single File"):
-                st.session_state.mode = "single"
-                st.write("คุณเลือกแบบไฟล์เดียว (ข้าม Merge)")
-        with col2:
-            if st.button("📚 Multiple Files"):
-                st.session_state.mode = "multiple"
-                st.write("คุณเลือกแบบหลายไฟล์ (สูงสุด 3 ไฟล์)")
-
-# 4. หน้า My Project (แสดงสถานะตามที่คุณต้องการ)
-elif menu == "My Project":
-    st.title("📁 โครงการของฉัน")
-    # ตัวอย่างตารางสถานะ
-    df_status = pd.DataFrame({
-        "Project Name": ["Project_A", "Project_B"],
-        "Status": ["Running 🏃", "In the queue ⏳"]
-    })
-    st.table(df_status)
-
-elif menu == "About Us":
-    st.title("ℹ️ วิธีการใช้งาน")
-    st.write("คำอธิบายขั้นตอนการทำงานของระบบ...")
-
-
-import streamlit as st
-import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+from database import sign_in, sign_up, add_project, get_my_projects
 
-# --- ส่วนต่อจากโค้ดเดิมที่เลือก Mode ---
+# --- 1. การตั้งค่าหน้าจอและ State ---
+st.set_page_config(page_title="Multi-Omics Analysis Platform", layout="wide")
 
-if 'mode' in st.session_state:
-    st.divider()
-    st.subheader(f"Step: Upload Data ({st.session_state.mode})")
+if 'user' not in st.session_state:
+    st.session_state.user = None
+if 'step' not in st.session_state:
+    st.session_state.step = "Home"
+
+# --- 2. ระบบ Login / Register (Step 1-4) ---
+def login_page():
+    st.title("🔐 เข้าสู่ระบบ")
+    tab1, tab2 = st.tabs(["Login", "Register"])
     
-    # กำหนดจำนวนไฟล์ตามโหมดที่เลือก
-    limit = 1 if st.session_state.mode == "single" else 3
-    uploaded_files = st.file_uploader(f"อัปโหลดไฟล์ (สูงสุด {limit} ไฟล์)", 
-                                      accept_multiple_files=(limit > 1), 
-                                      type=['csv', 'txt'])
+    with tab1:
+        email = st.text_input("Email", key="l_email")
+        pw = st.text_input("Password", type="password", key="l_pw")
+        if st.button("เข้าสู่ระบบ"):
+            # Logic: เช็คกับ Supabase
+            st.session_state.user = {"email": email, "id": "user_id_from_supabase"} 
+            st.rerun()
 
-    if uploaded_files:
-        all_dfs = []
-        # Preview ข้อมูล
-        for i, file in enumerate(uploaded_files if isinstance(uploaded_files, list) else [uploaded_files]):
-            df = pd.read_csv(file)
-            df['Batch'] = i + 1  # ใส่เลข Batch ตามที่ต้องการ
-            all_dfs.append(df)
-            st.write(f"🔍 Preview: {file.name}")
-            st.dataframe(df.head(5))
+    with tab2:
+        fn = st.text_input("First Name")
+        ln = st.text_input("Last Name")
+        reg_email = st.text_input("Email")
+        reg_pw = st.text_input("Password", type="password")
+        conf_pw = st.text_input("Confirm Password", type="password")
+        if st.button("สมัครสมาชิก"):
+            if reg_pw == conf_pw:
+                st.success("สมัครสมาชิกสำเร็จ! กรุณาไปที่หน้า Login")
+            else:
+                st.error("รหัสผ่านไม่ตรงกัน")
 
-        # --- กรณี Multiple Files (Step 6) ---
-        if st.session_state.mode == "multiple" and len(all_dfs) > 1:
-            if st.button("🔗 Merge Data"):
-                with st.spinner("กำลังทำการ Inner Merge..."):
-                    # Logic: Inner Merge
-                    merged_df = all_dfs[0]
-                    for next_df in all_dfs[1:]:
-                        merged_df = pd.merge(merged_df, next_df, how='inner')
-                    
-                    st.session_state.final_df = merged_df
-                    st.success("Merge สำเร็จ!")
-                    st.write(f"ขนาดข้อมูลหลัง Merge: {merged_df.shape}")
-                    st.write(f"พบค่า Missing ทั้งหมด: {merged_df.isnull().sum().sum()} จุด")
-                    st.button("Next to Preprocessing ➡️")
+if not st.session_state.user:
+    login_page()
+    st.stop()
 
-        # --- หน้า Preprocessing (Step 7) ---
-        if st.session_state.get('final_df') is not None or st.session_state.mode == "single":
-            if st.session_state.mode == "single": 
-                st.session_state.final_df = all_dfs[0]
+# --- 3. ส่วนของ Header (Step 3) ---
+col_logo, col_user = st.columns([4, 1])
+with col_user:
+    with st.expander(f"👤 {st.session_state.user['email']}"):
+        if st.button("แก้ไขบัญชี"): st.write("ไปหน้าแก้ไข...")
+        if st.button("ออกจากระบบ"): 
+            st.session_state.user = None
+            st.rerun()
 
+# --- 4. Sidebar Menu ---
+menu = st.sidebar.radio("Navigation", ["Home", "My Project", "About Us"])
+
+# --- 5. หน้า Home & New Analysis (Step 5-8) ---
+if menu == "Home":
+    st.title("🚀 วิเคราะห์ข้อมูลใหม่")
+    if st.button("➕ New Analysis"):
+        st.session_state.analysis_mode = st.radio("เลือกจำนวนไฟล์", ["Single File", "Multiple Files"])
+        
+    if 'analysis_mode' in st.session_state:
+        # Step 5: Upload
+        limit = 1 if st.session_state.analysis_mode == "Single File" else 3
+        files = st.file_uploader(f"อัปโหลดไฟล์ ({st.session_state.analysis_mode})", accept_multiple_files=(limit>1))
+        
+        if files:
+            all_dfs = [pd.read_csv(f) for f in (files if isinstance(files, list) else [files])]
+            for i, df in enumerate(all_dfs):
+                st.write(f"Preview ไฟล์ที่ {i+1}")
+                st.dataframe(df.head(5))
+
+            # Step 6: Merge
+            if st.session_state.analysis_mode == "Multiple Files":
+                if st.button("🔗 Merge Data"):
+                    # Logic Inner Merge
+                    merged = all_dfs[0]
+                    for d in all_dfs[1:]: merged = pd.merge(merged, d, how='inner')
+                    st.session_state.working_df = merged
+                    st.success(f"Merge เสร็จสิ้น! เหลือข้อมูล {merged.shape[0]} แถว")
+
+            # Step 7: Preprocessing
             st.divider()
-            st.header("⚙️ Data Preprocessing")
+            st.subheader("⚙️ Preprocessing Settings")
+            col_l, col_r = st.columns([3, 1])
+            with col_r:
+                miss_opt = st.selectbox("Missing Data", ["dropna", "Mean", "Min"])
+                norm_opt = st.selectbox("Normalization", ["Z-score", "Quantile", "MinMax"])
+                if st.button("Apply"):
+                    st.session_state.prepped = True
             
-            col_left, col_right = st.columns([3, 1]) # แบ่งกล่องซ้าย (Data) กล่องขวา (Options)
-            
-            with col_left:
-                st.subheader("Data Table")
-                st.dataframe(st.session_state.final_df.head(10))
-            
-            with col_right:
-                st.subheader("Options")
-                missing_tool = st.selectbox("Missing Data", ["dropna", "Fill Mean", "Fill Min"])
-                norm_tool = st.selectbox("Normalization", ["Z-score", "Quantile", "MinMax"])
+            # Step 8: Analysis Selection
+            if st.session_state.get('prepped'):
+                st.divider()
+                st.subheader("🔬 Machine Learning Analysis")
+                run_type = st.radio("โหมดการรัน", ["Auto (All Models)", "Manual (Select)"])
+                if run_type == "Manual (Select)":
+                    models = st.multiselect("เลือกโมเดล", ["Random Forest", "SVM", "XGBoost", "Neural Network"])
                 
-                if st.button("Apply Preprocessing"):
-                    # ตรงนี้คือจุดที่เอาโค้ดจาก Colab มาใส่ (เช่น df.dropna())
-                    st.session_state.processed_ready = True
-                    st.success("Preprocessing เสร็จสมบูรณ์!")
-                    # แสดงกราฟ (ตัวอย่าง)
-                    fig, ax = plt.subplots()
-                    sns.histplot(st.session_state.final_df.iloc[:, 1], kde=True)
-                    st.pyplot(fig)
-                    st.button("Next to Analysis ➡️")
+                if st.button("🚀 Start Analysis & Queue"):
+                    # Step 9: ส่งงานเข้าคิว
+                    st.success("ส่งงานเข้าคิวสำเร็จ! ระบบจะแจ้งเมลไปที่ " + st.session_state.user['email'])
+                    st.balloons()
+
+# --- 6. หน้า My Project (Step 3) ---
+elif menu == "My Project":
+    st.title("📁 โครงการของฉัน")
+    # ดึงข้อมูลจาก Supabase มาแสดง
+    projects = [
+        {"Name": "Test_Project", "Status": "Complete", "Date": "2026-02-01"},
+        {"Name": "Long_Covid_Study", "Status": "Running", "Date": "2026-02-02"}
+    ]
+    st.table(projects)
+
+elif menu == "About Us":
+    st.title("📖 เกี่ยวกับระบบ")
+    st.write("ระบบวิเคราะห์ข้อมูลทางชีวสารสนเทศระดับสูง...")
